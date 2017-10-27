@@ -111,7 +111,7 @@ int main(void)
   MX_USART3_UART_Init();
 
   /* USER CODE BEGIN 2 */
-
+  HAL_GPIO_WritePin(LEDR_GPIO_Port, LEDR_Pin, GPIO_PIN_SET);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -119,7 +119,8 @@ int main(void)
   while (1)
   {
   /* USER CODE END WHILE */
-
+	  HAL_GPIO_TogglePin(LEDR_GPIO_Port, LEDR_Pin);
+	  HAL_Delay(500);
   /* USER CODE BEGIN 3 */
 
   }
