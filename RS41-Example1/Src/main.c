@@ -40,7 +40,8 @@
 #include "stm32f1xx_hal.h"
 
 /* USER CODE BEGIN Includes */
-
+#include <stdint.h>
+#include "ublox.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -53,10 +54,22 @@ TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart3;
+DMA_HandleTypeDef hdma_usart1_rx;
+DMA_HandleTypeDef hdma_usart1_tx;
+DMA_HandleTypeDef hdma_usart3_rx;
+DMA_HandleTypeDef hdma_usart3_tx;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+typedef struct {
+	UART_HandleTypeDef* uart;
+	int txFinished;
+} uartStatus;
 
+uint8_t UART1ByteBuffer;
+uint8_t UART3ByteBuffer;
+uartStatus uart1Status;
+uartStatus uart3Status;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -71,7 +84,10 @@ static void MX_USART3_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-
+static void MX_USART1_UART_ReInit(uint32_t);
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef*);
+void UART_TxStart(UART_HandleTypeDef*);
+int UART_TxFinished(UART_HandleTypeDef*);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -111,7 +127,55 @@ int main(void)
   MX_USART3_UART_Init();
 
   /* USER CODE BEGIN 2 */
+    uart1Status.uart = &huart1;
+    uart1Status.txFinished = 1;
+    uart3Status.uart = &huart3;
+    uart3Status.txFinished = 1;
 
+  	uint8_t initMsg[] = "FW started\r\n\r\n";
+	//HAL_UART_Transmit_DMA(&huart3, initMsg, sizeof(initMsg));
+	//HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
+	//HAL_UART_Receive_DMA(&huart3, &UART3ByteBuffer, 1);
+	//HAL_GPIO_WritePin(LEDG_GPIO_Port, LEDG_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LEDR_GPIO_Port, LEDR_Pin, GPIO_PIN_SET);
+
+	ubxInit(&huart1);
+
+	/* Try to reset GPS at modified baud rate first (38400) */
+	ubxMessage cfgRstMsg = {
+		.cfgrst = {
+			.navBbrMask = 0xffff,
+			.resetMode = 1,
+			.reserved1 = 0
+		}
+	};
+	ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
+
+	/* Switch to default (9600) and try to reset GPS again in case previous try failed */
+	HAL_UART_DMAStop(&huart1);
+	MX_USART1_UART_ReInit(9600);
+	ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
+	//HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
+
+	HAL_Delay(800);
+
+	/* Configure port for 38400 baud rate and switch to the new settings */
+	ubxMessage cfgPrtMsg = {
+		.cfgprt = {
+			.portID = 1,
+			.reserved1 = 0,
+			.txReady = 0,
+			.mode = 0b00100011000000,
+			.baudRate = 38400,
+			.inProtoMask = 1,
+			.outProtoMask = 2,
+			.reserved2 = {0,0}
+		}
+	};
+	ubxSendPacket(UBX_CFG, UBX_CFG_PRT, sizeof(ubxCfgPrt), cfgPrtMsg);
+	HAL_UART_DMAStop(&huart1);
+	MX_USART1_UART_ReInit(38400);
+	HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -121,7 +185,9 @@ int main(void)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
+	  HAL_GPIO_TogglePin(LEDR_GPIO_Port, LEDR_Pin);
 
+	  HAL_Delay(500);
   }
   /* USER CODE END 3 */
 
@@ -331,6 +397,18 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  /* DMA1_Channel2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+  /* DMA1_Channel3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
+  /* DMA1_Channel4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+  /* DMA1_Channel5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
 
 }
 
@@ -383,6 +461,55 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+/* UART3 init with baud */
+static void MX_USART1_UART_ReInit(uint32_t baud)
+{
+	HAL_UART_DeInit(&huart1);
+	huart1.Init.BaudRate = baud;
+	if (HAL_UART_Init(&huart1) != HAL_OK) {
+		_Error_Handler(__FILE__, __LINE__);
+	}
+}
+
+/* Sets TX flag for UART */
+void UART_TxStart(UART_HandleTypeDef *huart) {
+	if (huart == uart1Status.uart) {
+		uart1Status.txFinished = 0;
+	} else if (huart == uart3Status.uart) {
+		uart3Status.txFinished = 0;
+	}
+}
+
+/* Returns 1 if specified UART is done transmitting */
+int UART_TxFinished(UART_HandleTypeDef *huart) {
+	if (huart == uart1Status.uart) {
+		return uart1Status.txFinished;
+	} else if (huart == uart3Status.uart) {
+		return uart3Status.txFinished;
+	}
+	return 0;
+}
+
+/* Callback to read data from any UART */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+	if (huart->Instance == USART1) {
+		ubxRxByte(UART1ByteBuffer);
+		HAL_UART_Transmit_DMA(&huart3, &UART1ByteBuffer, 1);
+		HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
+	} else if (huart->Instance == USART3) {
+		//HAL_UART_Transmit_DMA(&huart3, &UART3ByteBuffer, 1);
+		HAL_UART_Receive_DMA(&huart3, &UART3ByteBuffer, 1);
+	}
+}
+
+/* Callback after data write to any UART */
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
+	if (huart == uart1Status.uart) {
+		uart1Status.txFinished = 1;
+	} else if (huart == uart3Status.uart) {
+		uart3Status.txFinished = 1;
+	}
+}
 /* USER CODE END 4 */
 
 /**

@@ -1,7 +1,7 @@
 [PreviousGenFiles]
-HeaderPath=C:/Users/iskrzyns/workspace/RS41-Example1/Inc
+HeaderPath=C:/Users/iskrzyns/git/RS41-Example1/Inc
 HeaderFiles=stm32f1xx_it.h;stm32f1xx_hal_conf.h;main.h;
-SourcePath=C:/Users/iskrzyns/workspace/RS41-Example1/Src
+SourcePath=C:/Users/iskrzyns/git/RS41-Example1/Src
 SourceFiles=stm32f1xx_it.h;stm32f1xx_hal_conf.h;main.h;stm32f1xx_it.c;stm32f1xx_hal_msp.c;main.c;
 
 [PreviousLibFiles]
