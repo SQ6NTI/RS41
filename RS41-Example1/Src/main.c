@@ -84,10 +84,10 @@ static void MX_USART3_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-static void MX_USART1_UART_ReInit(uint32_t);
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef*);
 void UART_TxStart(UART_HandleTypeDef*);
 int UART_TxFinished(UART_HandleTypeDef*);
+void UART_ReInit(UART_HandleTypeDef*, uint32_t);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -140,42 +140,9 @@ int main(void)
 	HAL_GPIO_WritePin(LEDR_GPIO_Port, LEDR_Pin, GPIO_PIN_SET);
 
 	ubxInit(&huart1);
-
-	/* Try to reset GPS at modified baud rate first (38400) */
-	ubxMessage cfgRstMsg = {
-		.cfgrst = {
-			.navBbrMask = 0xffff,
-			.resetMode = 1,
-			.reserved1 = 0
-		}
-	};
-	ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
-
-	/* Switch to default (9600) and try to reset GPS again in case previous try failed */
-	HAL_UART_DMAStop(&huart1);
-	MX_USART1_UART_ReInit(9600);
-	ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
-	//HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
-
-	HAL_Delay(800);
-
-	/* Configure port for 38400 baud rate and switch to the new settings */
-	ubxMessage cfgPrtMsg = {
-		.cfgprt = {
-			.portID = 1,
-			.reserved1 = 0,
-			.txReady = 0,
-			.mode = 0b00100011000000,
-			.baudRate = 38400,
-			.inProtoMask = 1,
-			.outProtoMask = 2,
-			.reserved2 = {0,0}
-		}
-	};
-	ubxSendPacket(UBX_CFG, UBX_CFG_PRT, sizeof(ubxCfgPrt), cfgPrtMsg);
-	HAL_UART_DMAStop(&huart1);
-	MX_USART1_UART_ReInit(38400);
 	HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
+	ubxGPSData gpsData;
+	uint8_t gpsInfoString[15];
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -186,6 +153,29 @@ int main(void)
 
   /* USER CODE BEGIN 3 */
 	  HAL_GPIO_TogglePin(LEDR_GPIO_Port, LEDR_Pin);
+
+	  gpsData = ubxLastGPSData();
+	  gpsInfoString[3] = (gpsData.lat>>24) & 0xFF;
+	  gpsInfoString[2] = (gpsData.lat>>16) & 0xFF;
+	  gpsInfoString[1] = (gpsData.lat>>8) & 0xFF;
+	  gpsInfoString[0] = gpsData.lat & 0xFF;
+
+	  gpsInfoString[4] = ' ';
+	  gpsInfoString[5] = ':';
+	  gpsInfoString[6] = ' ';
+
+	  gpsInfoString[10] = (gpsData.lat>>24) & 0xFF;
+	  gpsInfoString[9] = (gpsData.lat>>16) & 0xFF;
+	  gpsInfoString[8] = (gpsData.lat>>8) & 0xFF;
+	  gpsInfoString[7] = gpsData.lat & 0xFF;
+
+	  gpsInfoString[11] = ' ';
+	  gpsInfoString[12] = (gpsData.fix)?'F':' ';
+
+	  gpsInfoString[13] = '\r';
+	  gpsInfoString[14] = '\n';
+
+	  HAL_UART_Transmit_DMA(&huart3, gpsInfoString, 15);
 
 	  HAL_Delay(500);
   }
@@ -461,16 +451,6 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-/* UART3 init with baud */
-static void MX_USART1_UART_ReInit(uint32_t baud)
-{
-	HAL_UART_DeInit(&huart1);
-	huart1.Init.BaudRate = baud;
-	if (HAL_UART_Init(&huart1) != HAL_OK) {
-		_Error_Handler(__FILE__, __LINE__);
-	}
-}
-
 /* Sets TX flag for UART */
 void UART_TxStart(UART_HandleTypeDef *huart) {
 	if (huart == uart1Status.uart) {
@@ -490,11 +470,27 @@ int UART_TxFinished(UART_HandleTypeDef *huart) {
 	return 0;
 }
 
+/* Resets UART with specified baud */
+void UART_ReInit(UART_HandleTypeDef *huart, uint32_t baud) {
+	HAL_UART_DMAStop(huart);
+	HAL_UART_DeInit(huart);
+	huart->Init.BaudRate = baud;
+	if (HAL_UART_Init(huart) != HAL_OK) {
+		_Error_Handler(__FILE__, __LINE__);
+	} else {
+		if (huart->Instance == USART1) {
+			HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
+		} else if (huart->Instance == USART3) {
+			HAL_UART_Receive_DMA(&huart3, &UART3ByteBuffer, 1);
+		}
+	}
+}
+
 /* Callback to read data from any UART */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart->Instance == USART1) {
 		ubxRxByte(UART1ByteBuffer);
-		HAL_UART_Transmit_DMA(&huart3, &UART1ByteBuffer, 1);
+		//HAL_UART_Transmit_DMA(&huart3, &UART1ByteBuffer, 1);
 		HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
 	} else if (huart->Instance == USART3) {
 		//HAL_UART_Transmit_DMA(&huart3, &UART3ByteBuffer, 1);

@@ -18,6 +18,7 @@
 /* UBX NAV Message Class */
 #define UBX_NAV 0x01
 #define UBX_NAV_POSLLH 0x02
+#define UBX_NAV_STATUS 0x03
 #define UBX_NAV_SOL 0x06
 #define UBX_NAV_TIMEUTC 0x21
 
@@ -163,6 +164,17 @@ typedef struct {
 	uint32_t reserved2;			// Reserved
 } ubxNavSol;
 
+/* UBX NAV-STATUS message (0x01 0x03) */
+typedef struct {
+	uint32_t iTOW;				// GPS Millisecond Time of Week [ms]
+	uint8_t gpsFix;				// GPSfix Type (0x00 No Fix, 01 Dead Reckoning only, 02 2D-Fix, 03 3D-Fix, 04 GPS + dead reckoning combined, 05 Time only fix)
+	uint8_t flags;				// Fix Status Flags
+	uint8_t fixStat;			// Fix Status Information
+	uint8_t flags2;				// Further information about navigation output
+	uint32_t ttff;				// Time to first fix (millisecond time tag)
+	uint32_t msss;				// Milliseconds since Startup / Reset
+} ubxNavStatus;
+
 /* UBX NAV-TIMEUTC message (0x01 0x021) */
 typedef struct {
 	uint32_t iTOW;			// GPS Millisecond Time of Week [ms]
@@ -187,6 +199,7 @@ typedef union {
 	ubxCfgRst		cfgrst;
 	ubxCfgRxm		cfgrxm;
 	ubxNavPosllh	navposllh;
+	ubxNavStatus	navstatus;
 	ubxNavSol		navsol;
 	ubxNavTimeutc	navtimeutc;
 } ubxMessage;
@@ -223,12 +236,14 @@ typedef struct {
 void ubxInit(UART_HandleTypeDef *uart);
 void ubxRxByte(uint8_t data);
 void ubxProcessPacket(const ubxPacket *packet);
+int ubxResponseWait(int timeout);
 void ubxSendPacket(uint8_t messageClass, uint8_t messageId, uint16_t payloadLength, ubxMessage message);
 void ubxTxPacket(ubxPacket packet);
 uint8_t *serializeUbxPacket(ubxPacket *ubxPacket);
 ubxChecksum ubxCalcChecksum(const ubxPacket *packet);
 ubxGPSData ubxLastGPSData(void);
 
+extern void UART_ReInit(UART_HandleTypeDef*, uint32_t);
 extern void UART_TxStart(UART_HandleTypeDef*);
 extern int UART_TxFinished(UART_HandleTypeDef*);
 

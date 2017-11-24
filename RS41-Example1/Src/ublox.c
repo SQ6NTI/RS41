@@ -8,18 +8,65 @@
 #include "ublox.h"
 
 ubxGPSData currentGPSData;
-ubxMessage recentCfgResponse;
+ubxPacket recentCfgResponse;
+int recentCfgResponseValid;
 UART_HandleTypeDef *gpsUart;
 
 void ubxInit(UART_HandleTypeDef *uart) {
 	gpsUart = uart;
-	// initialize USART1 (9600 or 38400?)
 
-	// wait 10ms (check time)
+	/* Try to reset GPS at modified baud rate first (38400) */
+	ubxMessage cfgRstMsg = {
+		.cfgrst = {
+			.navBbrMask = 0xffff,
+			.resetMode = 1,
+			.reserved1 = 0
+		}
+	};
+	ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
+	HAL_Delay(800); /* Wait for reset (how long does the reset take?) */
 
-	// send MSG-CFG-RST
+	/* Switch to default (9600) and try to reset GPS again in case previous try failed */
+	HAL_UART_DMAStop(gpsUart);
+	UART_ReInit(gpsUart, 9600);
+	ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
+	HAL_Delay(800); /* wait for reset (how long does the reset take?) */
 
-	//
+	/* Configure port for 38400 baud rate and switch to the new settings */
+	ubxMessage cfgPrtMsg = {
+		.cfgprt = {
+			.portID = 1,
+			.reserved1 = 0,
+			.txReady = 0,
+			.mode = 0b00100011000000,
+			.baudRate = 38400,
+			.inProtoMask = 1,
+			.outProtoMask = 1,
+			.reserved2 = {0,0}
+		}
+	};
+	ubxSendPacket(UBX_CFG, UBX_CFG_PRT, sizeof(ubxCfgPrt), cfgPrtMsg);
+	UART_ReInit(gpsUart, 38400);
+	HAL_Delay(100); /* wait until ublox re-config is done (what should be the exact time?) */
+	//ubxSendPacket(UBX_CFG, UBX_CFG_PRT, sizeof(ubxCfgPrt), cfgPrtMsg);
+
+	/* Configure NAV-POSLLH outgoing messages */
+	ubxMessage cfgMsgMsg = {
+		.cfgmsg = {
+			.msgClass = 0x01,
+			.msgID = 0x02,
+			.rate = 5
+		}
+	};
+	do {
+		ubxSendPacket(UBX_CFG, UBX_CFG_MSG, sizeof(ubxCfgMsg), cfgMsgMsg);
+	} while (!ubxResponseWait(20));
+
+	/* Configure NAV-STATUS outgoing messages */
+	cfgMsgMsg.cfgmsg.msgID = 0x03;
+	do {
+		ubxSendPacket(UBX_CFG, UBX_CFG_MSG, sizeof(ubxCfgMsg), cfgMsgMsg);
+	} while (!ubxResponseWait(20));
 }
 
 void ubxRxByte(uint8_t data) {
@@ -28,7 +75,8 @@ void ubxRxByte(uint8_t data) {
 	static uint8_t ubxHeaderReady = 0;
 	static uint16_t msgPos = 0;
 	static uint16_t lengthWithHeader = 0;
-	static ubxPacket packet = {};
+	static ubxPacket packet;
+	static const ubxPacket EmptyPacket;
 
 	if (!ubxSync) {
 		if (dataPos == 0 && data == UBX_SYNC1) { /* Check fist sync byte of UBX Packet */
@@ -63,7 +111,15 @@ void ubxRxByte(uint8_t data) {
 			} else if (dataPos == lengthWithHeader+1) { /* read ck_b */
 				packet.checksum.ck_b = data;
 			} else { /* Packet is now ready for further processing */
+				/* Static status cleanup */
+				dataPos = 0;
+				ubxSync = 0;
+				ubxHeaderReady = 0;
+				msgPos = 0;
+				lengthWithHeader = 0;
+
 				ubxProcessPacket(&packet);
+				packet = EmptyPacket;
 			}
 		}
 		dataPos++;
@@ -79,7 +135,8 @@ void ubxProcessPacket(const ubxPacket *packet) {
 
 	/* Select action based on message class and ID */
 	if (packet->header.messageClass == UBX_ACK) {
-		recentCfgResponse = packet->message;
+		recentCfgResponse = *packet;
+		recentCfgResponseValid = 1;
 	} else if (packet->header.messageClass == UBX_NAV) {
 		if (packet->header.messageId == UBX_NAV_POSLLH) {
 			currentGPSData.lat = packet->message.navposllh.lat;
@@ -92,8 +149,27 @@ void ubxProcessPacket(const ubxPacket *packet) {
 			currentGPSData.hour = packet->message.navtimeutc.hour;
 			currentGPSData.minute = packet->message.navtimeutc.min;
 			currentGPSData.second = packet->message.navtimeutc.sec;
+		} else if (packet->header.messageId == UBX_NAV_STATUS) {
+			currentGPSData.fix = packet->message.navstatus.flags & 1;
 		}
 	}
+}
+
+int ubxResponseWait(int timeout) {
+	while (!recentCfgResponseValid) {
+		HAL_Delay(10);
+		if (timeout > 0) {
+			timeout--;
+		} else {
+			return 0;
+		}
+	}
+
+	if (recentCfgResponse.header.messageId == UBX_ACK_ACK) {
+		return 1;
+	}
+
+	return 0;
 }
 
 void ubxSendPacket(uint8_t messageClass, uint8_t messageId, uint16_t payloadLength, ubxMessage message) {
@@ -109,6 +185,12 @@ void ubxSendPacket(uint8_t messageClass, uint8_t messageId, uint16_t payloadLeng
 		.checksum = {0,0}
 	};
 	packet.checksum = ubxCalcChecksum(&packet);
+
+	if (packet.header.messageClass == UBX_CFG) {
+		/* When sending CFG message, we expect ACK or NAK in return. Invalidate previous CFG esponse. */
+		recentCfgResponseValid = 0;
+	}
+
 	ubxTxPacket(packet);
 }
 
