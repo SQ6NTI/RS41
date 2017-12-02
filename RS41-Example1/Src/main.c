@@ -41,6 +41,7 @@
 
 /* USER CODE BEGIN Includes */
 #include <stdint.h>
+#include <string.h>
 #include "ublox.h"
 /* USER CODE END Includes */
 
@@ -155,30 +156,8 @@ int main(void)
 	  HAL_GPIO_TogglePin(LEDR_GPIO_Port, LEDR_Pin);
 
 	  gpsData = ubxLastGPSData();
-
 	  sprintf(gpsInfoString, "%.6lf : %.6lf : %c\r\n", gpsData.lat/10000000.0, gpsData.lon/10000000.0, (gpsData.fix)?'F':'X');
-
-	  /*gpsInfoString[0] = (gpsData.lat >= 0)?' ':'-';
-	  gpsInfoString[1] = gpsData.lat/1000000;
-	  gpsInfoString[2] = (gpsData.lat>>8) & 0xFF;
-	  gpsInfoString[3] = gpsData.lat & 0xFF;
-
-	  gpsInfoString[4] = ' ';
-	  gpsInfoString[5] = ':';
-	  gpsInfoString[6] = ' ';
-
-	  gpsInfoString[7] = (gpsData.lon >= 0)?' ':'-';
-	  gpsInfoString[8] = gpsData.lon/1000000;
-	  gpsInfoString[9] = (gpsData.lon>>8) & 0xFF;
-	  gpsInfoString[10] = gpsData.lon & 0xFF;
-
-	  gpsInfoString[11] = ' ';
-	  gpsInfoString[12] =
-
-	  gpsInfoString[13] = '\r';
-	  gpsInfoString[14] = '\n';*/
-
-	  HAL_UART_Transmit_DMA(&huart3, gpsInfoString, strlen(gpsInfoString));
+	  HAL_UART_Transmit_DMA(&huart3, (uint8_t*)gpsInfoString, strlen(gpsInfoString));
 
 	  HAL_Delay(500);
   }
