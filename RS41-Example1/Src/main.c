@@ -142,7 +142,7 @@ int main(void)
 	ubxInit(&huart1);
 	HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
 	ubxGPSData gpsData;
-	uint8_t gpsInfoString[15];
+	char gpsInfoString[100];
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -155,27 +155,30 @@ int main(void)
 	  HAL_GPIO_TogglePin(LEDR_GPIO_Port, LEDR_Pin);
 
 	  gpsData = ubxLastGPSData();
-	  gpsInfoString[3] = (gpsData.lat>>24) & 0xFF;
-	  gpsInfoString[2] = (gpsData.lat>>16) & 0xFF;
-	  gpsInfoString[1] = (gpsData.lat>>8) & 0xFF;
-	  gpsInfoString[0] = gpsData.lat & 0xFF;
+
+	  sprintf(gpsInfoString, "%.6lf : %.6lf : %c\r\n", gpsData.lat/10000000.0, gpsData.lon/10000000.0, (gpsData.fix)?'F':'X');
+
+	  /*gpsInfoString[0] = (gpsData.lat >= 0)?' ':'-';
+	  gpsInfoString[1] = gpsData.lat/1000000;
+	  gpsInfoString[2] = (gpsData.lat>>8) & 0xFF;
+	  gpsInfoString[3] = gpsData.lat & 0xFF;
 
 	  gpsInfoString[4] = ' ';
 	  gpsInfoString[5] = ':';
 	  gpsInfoString[6] = ' ';
 
-	  gpsInfoString[10] = (gpsData.lat>>24) & 0xFF;
-	  gpsInfoString[9] = (gpsData.lat>>16) & 0xFF;
-	  gpsInfoString[8] = (gpsData.lat>>8) & 0xFF;
-	  gpsInfoString[7] = gpsData.lat & 0xFF;
+	  gpsInfoString[7] = (gpsData.lon >= 0)?' ':'-';
+	  gpsInfoString[8] = gpsData.lon/1000000;
+	  gpsInfoString[9] = (gpsData.lon>>8) & 0xFF;
+	  gpsInfoString[10] = gpsData.lon & 0xFF;
 
 	  gpsInfoString[11] = ' ';
-	  gpsInfoString[12] = (gpsData.fix)?'F':' ';
+	  gpsInfoString[12] =
 
 	  gpsInfoString[13] = '\r';
-	  gpsInfoString[14] = '\n';
+	  gpsInfoString[14] = '\n';*/
 
-	  HAL_UART_Transmit_DMA(&huart3, gpsInfoString, 15);
+	  HAL_UART_Transmit_DMA(&huart3, gpsInfoString, strlen(gpsInfoString));
 
 	  HAL_Delay(500);
   }
@@ -493,7 +496,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		//HAL_UART_Transmit_DMA(&huart3, &UART1ByteBuffer, 1);
 		HAL_UART_Receive_DMA(&huart1, &UART1ByteBuffer, 1);
 	} else if (huart->Instance == USART3) {
-		//HAL_UART_Transmit_DMA(&huart3, &UART3ByteBuffer, 1);
 		HAL_UART_Receive_DMA(&huart3, &UART3ByteBuffer, 1);
 	}
 }

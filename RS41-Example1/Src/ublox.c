@@ -23,13 +23,13 @@ void ubxInit(UART_HandleTypeDef *uart) {
 			.reserved1 = 0
 		}
 	};
-	ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
+	//ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
 	HAL_Delay(800); /* Wait for reset (how long does the reset take?) */
 
 	/* Switch to default (9600) and try to reset GPS again in case previous try failed */
 	HAL_UART_DMAStop(gpsUart);
 	UART_ReInit(gpsUart, 9600);
-	ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
+	//ubxSendPacket(UBX_CFG, UBX_CFG_RST, sizeof(ubxCfgRst), cfgRstMsg);
 	HAL_Delay(800); /* wait for reset (how long does the reset take?) */
 
 	/* Configure port for 38400 baud rate and switch to the new settings */
